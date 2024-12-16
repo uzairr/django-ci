@@ -4,6 +4,9 @@ on:
   pull_request:
     branches:
       - master  # Change this to your target branch if different
+  push:
+    branches:
+      - master
 
 jobs:
   build:
@@ -25,3 +28,20 @@ jobs:
       - name: Run tests
         run: |
           python manage.py test  # Example using pytest as a test runner
+
+  sync_stage:
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/master'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Sync with stage branch
+        run: |
+          git config user.name "Github Action"
+          git config user.email "action@github.com"
+          git checkout staging
+          git merge master --no-ff -m "Sync from master"
+          git push origin staging
