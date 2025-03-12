@@ -1,5 +1,7 @@
 name: CI
-
+# workflow level
+env:
+  PIPE: cicd
 on:
   push:
     branches:
