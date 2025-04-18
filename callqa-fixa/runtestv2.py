@@ -105,6 +105,7 @@ class TwilioTestRunner:
 
         # Add handler to root logger to capture ALL logs
         root_logger = logging.getLogger()
+        root_logger.setLevel(logging.DEBUG)  # Set root logger to DEBUG level
         root_logger.addHandler(ws_handler)
 
         # Also explicitly add handlers for pipecat
@@ -112,9 +113,10 @@ class TwilioTestRunner:
         pipecat_logger.setLevel(logging.DEBUG)
         pipecat_logger.addHandler(ws_handler)
 
-        # Also add handlers for all loggers in the fixa package
+        # Also add handlers for all loggers in the fixa package and pipecat
         for name in logging.root.manager.loggerDict:
             if name.startswith('fixa') or name.startswith('pipecat'):
+                logging.getLogger(name).setLevel(logging.DEBUG)
                 logging.getLogger(name).addHandler(ws_handler)
 
         # Broadcast an initialization message
@@ -295,24 +297,23 @@ class TwilioTestRunner:
         domain = "https://callqa-twilio.affable.com"
         await self.log(f"Using domain: {domain}")
 
-        # Instead of monkey patching a non-existent method, add a logging handler
-        # Replace the monkey patching code in run_test method with:
+        # Set up logging for TestRunner with explicit handlers for pipecat
         if self.broadcast_callback:
-            # Try to intercept logs through a logging handler instead of monkey patching
-            # This works for both INFO and DEBUG levels
-            test_runner_logger = logging.getLogger('fixa')
-            test_runner_logger.setLevel(logging.DEBUG)  # Ensure we capture both DEBUG and INFO
+            # Set up logging for both fixa and pipecat
+            for package in ['fixa', 'pipecat']:
+                package_logger = logging.getLogger(package)
+                package_logger.setLevel(logging.DEBUG)
 
-            # Create a handler specifically for TestRunner logs
-            ws_handler = WebSocketLogHandler(self.broadcast_callback)
-            ws_handler.setLevel(logging.DEBUG)
-            formatter = logging.Formatter('TESTRUNNER: %(message)s')
-            ws_handler.setFormatter(formatter)
+                # Create a handler specifically for these logs
+                ws_handler = WebSocketLogHandler(self.broadcast_callback)
+                ws_handler.setLevel(logging.DEBUG)
+                formatter = logging.Formatter('TESTRUNNER: %(message)s')
+                ws_handler.setFormatter(formatter)
 
-            # Add the handler to the logger
-            test_runner_logger.addHandler(ws_handler)
+                # Add the handler to the logger
+                package_logger.addHandler(ws_handler)
 
-            await self.log("Added WebSocket handler to TestRunner logger for all log levels")
+            await self.log("Added WebSocket handler to TestRunner and pipecat loggers for all log levels")
 
         test_runner = TestRunner(
             port=8765,

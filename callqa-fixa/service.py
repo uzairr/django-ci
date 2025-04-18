@@ -217,6 +217,26 @@ async def run_runtest(line_index: int) -> None:
         # Create TwilioTestRunner with our broadcast function
         runner = TwilioTestRunner(broadcast_callback=broadcast_to_listeners)
 
+        # Set the root logger to DEBUG level to ensure all logs are captured
+        logging.getLogger().setLevel(logging.DEBUG)
+
+        # Ensure pipecat logger is set to DEBUG and has our handler
+        pipecat_logger = logging.getLogger('pipecat')
+        pipecat_logger.setLevel(logging.DEBUG)
+
+        # Create a custom handler for pipecat logs
+        class PipecatHandler(logging.Handler):
+            def emit(self, record):
+                log_message = self.format(record)
+                asyncio.create_task(broadcast_to_listeners(f"PIPECAT: {log_message}"))
+
+        # Add the handler
+        pipecat_handler = PipecatHandler()
+        pipecat_handler.setLevel(logging.DEBUG)
+        pipecat_logger.addHandler(pipecat_handler)
+
+        await broadcast_to_listeners("Configured pipecat logger for DEBUG level")
+
         # Run the test directly
         await broadcast_to_listeners(f"Executing test for line index {line_index}")
         results = await runner.run_test(line_index=line_index)
