@@ -32,25 +32,62 @@ class WebSocketLogHandler(logging.Handler):
 
     def emit(self, record):
         try:
-            # Check if this is a pipecat log
+            # Special handling for pipecat logs
             if record.name.startswith('pipecat'):
-                # Extract module name and line number
                 module_name = record.name
                 line_number = record.lineno
                 message = record.getMessage()
 
-                # Format similar to the blue logs in screenshots
+                # Format like the blue logs in screenshots
                 log_entry = f"{module_name}:{line_number} - {message}"
 
-                # Use create_task to avoid blocking
-                asyncio.create_task(self.broadcast_callback(log_entry, "DEBUG"))
+                # Forward directly without any additional formatting
+                asyncio.create_task(self.broadcast_callback(log_entry))
             else:
-                # Handle non-pipecat logs normally
+                # Regular formatting for non-pipecat logs
                 log_entry = self.format(record)
                 asyncio.create_task(self.broadcast_callback(log_entry))
-        except Exception:
-            # Ensure any errors don't crash the handler
-            pass
+        except Exception as e:
+            # Log error to stdout but don't crash
+            print(f"Error in WebSocketLogHandler: {e}")
+
+def setup_websocket_logging(self, broadcast_callback):
+    """Set up comprehensive logging to WebSocket"""
+    # Create and configure handler
+    ws_handler = WebSocketLogHandler(broadcast_callback)
+    ws_handler.setLevel(logging.DEBUG)
+    formatter = logging.Formatter('%(message)s')  # Simplest format to avoid duplicating timestamps
+    ws_handler.setFormatter(formatter)
+
+    # Add handler to logger
+    logger.addHandler(ws_handler)
+
+    # Add handler to root logger to capture ALL logs
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG)
+    root_logger.addHandler(ws_handler)
+
+    # Explicitly add handlers for pipecat loggers
+    for name in logging.root.manager.loggerDict:
+        if name.startswith('pipecat'):
+            pipecat_logger = logging.getLogger(name)
+            pipecat_logger.setLevel(logging.DEBUG)
+            pipecat_logger.addHandler(ws_handler)
+            # Make sure logs propagate
+            pipecat_logger.propagate = True
+
+    # Also add a direct handler to stdout to debug logging issues
+    class StdoutHandler(logging.StreamHandler):
+        def emit(self, record):
+            if record.name.startswith('pipecat'):
+                super().emit(record)
+
+    stdout_handler = StdoutHandler(sys.stdout)
+    stdout_handler.setLevel(logging.DEBUG)
+    root_logger.addHandler(stdout_handler)
+
+    # Broadcast an initialization message
+    asyncio.create_task(broadcast_callback("TestRunner initialized with WebSocket logging"))
 
 
 # Custom stdout/stderr capture for subprocess output
