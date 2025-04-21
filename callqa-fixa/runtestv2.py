@@ -83,10 +83,10 @@ class TwilioTestRunner:
         self.phone_number_to_call = os.getenv('QA_PHONE_NUMBER')  # Phone number of your agent
 
         # Set up ngrok
-        ngrok_token = "2syv02Nm9vzw4a5GZbI9hP8UOib_4T7pFRBgEUKe7sj6hVMh"
-        if not ngrok_token:
-            raise ValueError("NGROK_AUTH_TOKEN not found in environment variables")
-        ngrok.set_auth_token(ngrok_token)
+        # ngrok_token = "2syv02Nm9vzw4a5GZbI9hP8UOib_4T7pFRBgEUKe7sj6hVMh"
+        # if not ngrok_token:
+        #     raise ValueError("NGROK_AUTH_TOKEN not found in environment variables")
+        # ngrok.set_auth_token(ngrok_token)
 
         # Set up WebSocket broadcasting if callback provided
         if broadcast_callback:
@@ -128,12 +128,12 @@ class TwilioTestRunner:
         if self.broadcast_callback and not isinstance(message, Exception):
             await self.broadcast_callback(f"TESTRUNNER: {message}")
 
-    async def setup_ngrok(self, port=8765):
-        """Set up ngrok forwarding for the specified port"""
-        await self.log(f"Setting up ngrok for port {port}")
-        listener = await ngrok.connect(port, authtoken="2syv02Nm9vzw4a5GZbI9hP8UOib_4T7pFRBgEUKe7sj6hVMh")
-        await self.log(f"Ngrok forwarding established: {listener}")
-        return listener, port
+    # async def setup_ngrok(self, port=8765):
+    #     """Set up ngrok forwarding for the specified port"""
+    #     await self.log(f"Setting up ngrok for port {port}")
+    #     listener = await ngrok.connect(port, authtoken="2syv02Nm9vzw4a5GZbI9hP8UOib_4T7pFRBgEUKe7sj6hVMh")
+    #     await self.log(f"Ngrok forwarding established: {listener}")
+    #     return listener, port
 
     def load_test_case(self, case_file, line_index=0):
         """Load a specific test case from a JSONL file"""

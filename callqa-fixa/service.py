@@ -1,3 +1,4 @@
+import logging
 import subprocess
 import json
 import os
@@ -92,43 +93,43 @@ async def broadcast_to_listeners(message: str):
 
 
 # Custom stream reader for subprocess output
-async def read_stream(stream, prefix: str):
-    """Read from a stream line by line and broadcast each line"""
-    while True:
-        line = await stream.readline()
-        if not line:
-            break
-        line_str = line.decode('utf-8', errors='replace').rstrip()
-        if line_str:  # Skip empty lines
-            await broadcast_to_listeners(f"{prefix}: {line_str}")
+# async def read_stream(stream, prefix: str):
+#     """Read from a stream line by line and broadcast each line"""
+#     while True:
+#         line = await stream.readline()
+#         if not line:
+#             break
+#         line_str = line.decode('utf-8', errors='replace').rstrip()
+#         if line_str:  # Skip empty lines
+#             await broadcast_to_listeners(f"{prefix}: {line_str}")
 
 
-def fetch_transcript_from_deepgram(recording_url: str) -> list:
-    """
-    Fetch the transcript from Deepgram using the provided recording URL.
-    """
-    DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY", "")
-    if not DEEPGRAM_API_KEY:
-        asyncio.create_task(broadcast_to_listeners("Deepgram API key not set."))
-        return []
-
-    headers = {"Authorization": f"Token {DEEPGRAM_API_KEY}"}
-    endpoint = f"https://api.deepgram.com/v1/listen?url={recording_url}"
-
-    try:
-        response = requests.get(endpoint, headers=headers)
-        if response.status_code == 200:
-            data = response.json()
-            transcript = data.get("results", {}).get("channels", [{}])[0].get("alternatives", [{}])[0].get("transcript",
-                                                                                                           "")
-            asyncio.create_task(broadcast_to_listeners(f"Fetched transcript from Deepgram: {transcript}"))
-            return [transcript] if transcript else []
-        else:
-            asyncio.create_task(broadcast_to_listeners(f"Deepgram API error: {response.status_code} {response.text}"))
-            return []
-    except Exception as e:
-        asyncio.create_task(broadcast_to_listeners(f"Deepgram exception: {str(e)}"))
-        return []
+# def fetch_transcript_from_deepgram(recording_url: str) -> list:
+#     """
+#     Fetch the transcript from Deepgram using the provided recording URL.
+#     """
+#     DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY", "")
+#     if not DEEPGRAM_API_KEY:
+#         asyncio.create_task(broadcast_to_listeners("Deepgram API key not set."))
+#         return []
+#
+#     headers = {"Authorization": f"Token {DEEPGRAM_API_KEY}"}
+#     endpoint = f"https://api.deepgram.com/v1/listen?url={recording_url}"
+#
+#     try:
+#         response = requests.get(endpoint, headers=headers)
+#         if response.status_code == 200:
+#             data = response.json()
+#             transcript = data.get("results", {}).get("channels", [{}])[0].get("alternatives", [{}])[0].get("transcript",
+#                                                                                                            "")
+#             asyncio.create_task(broadcast_to_listeners(f"Fetched transcript from Deepgram: {transcript}"))
+#             return [transcript] if transcript else []
+#         else:
+#             asyncio.create_task(broadcast_to_listeners(f"Deepgram API error: {response.status_code} {response.text}"))
+#             return []
+#     except Exception as e:
+#         asyncio.create_task(broadcast_to_listeners(f"Deepgram exception: {str(e)}"))
+#         return []
 
 
 async def log_debug(message: str):
@@ -138,73 +139,73 @@ async def log_debug(message: str):
 
 
 # ----- Helper functions for running tests -----
-async def run_scenario_with_data(data: BeaumontData) -> dict:
-    """
-    Calls scenario_with_data.py with provided data using async subprocess.
-    """
-    # Dump the data to JSON
-    json_data = json.dumps(data.model_dump())
-
-    # Create a temporary file to store the JSON data
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as tf:
-        tf.write(json_data)
-        temp_file = tf.name
-
-    try:
-        await log_debug(f"Starting scenario with data (using temp file {temp_file})")
-
-        # Prepare command with properly escaped arguments
-        cmd = ["python", "scenario_with_data.py", temp_file]
-
-        # Prepare environment variables
-        env = os.environ.copy()
-        additional_paths = "/home/ubuntu/fixa/fixa/src:/home/ubuntu/fixa/fixa/src/test_runner"
-        if "PYTHONPATH" in env:
-            env["PYTHONPATH"] = additional_paths + ":" + env["PYTHONPATH"]
-        else:
-            env["PYTHONPATH"] = additional_paths
-
-        await log_debug(f"Environment PYTHONPATH: {env.get('PYTHONPATH')}")
-        await log_debug(f"Running command: {' '.join(cmd)}")
-
-        # Run the process with async output capture
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=env
-        )
-
-        # Set up tasks to read stdout and stderr concurrently
-        stdout_task = asyncio.create_task(read_stream(process.stdout, "STDOUT"))
-        stderr_task = asyncio.create_task(read_stream(process.stderr, "STDERR"))
-
-        # Wait for the process to complete
-        exit_code = await process.wait()
-
-        # Ensure all output is processed
-        await stdout_task
-        await stderr_task
-
-        await log_debug(f"Process exited with code: {exit_code}")
-
-        if exit_code != 0:
-            raise RuntimeError(f"Error running scenario_with_data.py, exit code: {exit_code}")
-
-        # Get the results
-        result = get_last_test_entry()
-        await log_debug(f"Test completed successfully")
-        return result
-
-    except Exception as e:
-        await log_debug(f"ERROR: {str(e)}")
-        raise
-    finally:
-        # Clean up the temp file
-        try:
-            os.unlink(temp_file)
-        except Exception as e:
-            await log_debug(f"Failed to delete temp file: {str(e)}")
+# async def run_scenario_with_data(data: BeaumontData) -> dict:
+#     """
+#     Calls scenario_with_data.py with provided data using async subprocess.
+#     """
+#     # Dump the data to JSON
+#     json_data = json.dumps(data.model_dump())
+#
+#     # Create a temporary file to store the JSON data
+#     with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as tf:
+#         tf.write(json_data)
+#         temp_file = tf.name
+#
+#     try:
+#         await log_debug(f"Starting scenario with data (using temp file {temp_file})")
+#
+#         # Prepare command with properly escaped arguments
+#         cmd = ["python", "scenario_with_data.py", temp_file]
+#
+#         # Prepare environment variables
+#         env = os.environ.copy()
+#         additional_paths = "/home/ubuntu/fixa/fixa/src:/home/ubuntu/fixa/fixa/src/test_runner"
+#         if "PYTHONPATH" in env:
+#             env["PYTHONPATH"] = additional_paths + ":" + env["PYTHONPATH"]
+#         else:
+#             env["PYTHONPATH"] = additional_paths
+#
+#         await log_debug(f"Environment PYTHONPATH: {env.get('PYTHONPATH')}")
+#         await log_debug(f"Running command: {' '.join(cmd)}")
+#
+#         # Run the process with async output capture
+#         process = await asyncio.create_subprocess_exec(
+#             *cmd,
+#             stdout=asyncio.subprocess.PIPE,
+#             stderr=asyncio.subprocess.PIPE,
+#             env=env
+#         )
+#
+#         # Set up tasks to read stdout and stderr concurrently
+#         stdout_task = asyncio.create_task(read_stream(process.stdout, "STDOUT"))
+#         stderr_task = asyncio.create_task(read_stream(process.stderr, "STDERR"))
+#
+#         # Wait for the process to complete
+#         exit_code = await process.wait()
+#
+#         # Ensure all output is processed
+#         await stdout_task
+#         await stderr_task
+#
+#         await log_debug(f"Process exited with code: {exit_code}")
+#
+#         if exit_code != 0:
+#             raise RuntimeError(f"Error running scenario_with_data.py, exit code: {exit_code}")
+#
+#         # Get the results
+#         result = get_last_test_entry()
+#         await log_debug(f"Test completed successfully")
+#         return result
+#
+#     except Exception as e:
+#         await log_debug(f"ERROR: {str(e)}")
+#         raise
+#     finally:
+#         # Clean up the temp file
+#         try:
+#             os.unlink(temp_file)
+#         except Exception as e:
+#             await log_debug(f"Failed to delete temp file: {str(e)}")
 
 
 async def run_runtest(line_index: int) -> None:
@@ -258,45 +259,45 @@ async def run_runtest(line_index: int) -> None:
         raise RuntimeError(error_msg)
 
 
-async def run_subprocess_with_logging(cmd, env=None):
-    """Generic function to run a subprocess with output logging to WebSocket"""
-    await log_debug(f"Running command: {' '.join(cmd)}")
+# async def run_subprocess_with_logging(cmd, env=None):
+#     """Generic function to run a subprocess with output logging to WebSocket"""
+#     await log_debug(f"Running command: {' '.join(cmd)}")
+#
+#     process = await asyncio.create_subprocess_exec(
+#         *cmd,
+#         stdout=asyncio.subprocess.PIPE,
+#         stderr=asyncio.subprocess.PIPE,
+#         env=env
+#     )
+#
+#     # Read stdout and stderr concurrently
+#     stdout_task = asyncio.create_task(read_stream(process.stdout, "STDOUT"))
+#     stderr_task = asyncio.create_task(read_stream(process.stderr, "STDERR"))
+#
+#     # Wait for the process to complete
+#     exit_code = await process.wait()
+#
+#     # Ensure all output is processed
+#     await stdout_task
+#     await stderr_task
+#
+#     await log_debug(f"Process exited with code: {exit_code}")
+#
+#     if exit_code != 0:
+#         raise RuntimeError(f"Process failed with exit code: {exit_code}")
 
-    process = await asyncio.create_subprocess_exec(
-        *cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        env=env
-    )
 
-    # Read stdout and stderr concurrently
-    stdout_task = asyncio.create_task(read_stream(process.stdout, "STDOUT"))
-    stderr_task = asyncio.create_task(read_stream(process.stderr, "STDERR"))
-
-    # Wait for the process to complete
-    exit_code = await process.wait()
-
-    # Ensure all output is processed
-    await stdout_task
-    await stderr_task
-
-    await log_debug(f"Process exited with code: {exit_code}")
-
-    if exit_code != 0:
-        raise RuntimeError(f"Process failed with exit code: {exit_code}")
-
-
-def get_last_test_entry() -> dict:
-    """
-    Reads and returns the last JSON entry from test_runs_output.jsonl.
-    """
-    if not os.path.exists(TEST_OUTPUT_FILE):
-        raise HTTPException(status_code=404, detail="No test_runs_output.jsonl found")
-    with open(TEST_OUTPUT_FILE, "r", encoding="utf-8") as f:
-        lines = f.read().strip().splitlines()
-    if not lines:
-        raise HTTPException(status_code=404, detail="test_runs_output.jsonl is empty")
-    return json.loads(lines[-1])
+# def get_last_test_entry() -> dict:
+#     """
+#     Reads and returns the last JSON entry from test_runs_output.jsonl.
+#     """
+#     if not os.path.exists(TEST_OUTPUT_FILE):
+#         raise HTTPException(status_code=404, detail="No test_runs_output.jsonl found")
+#     with open(TEST_OUTPUT_FILE, "r", encoding="utf-8") as f:
+#         lines = f.read().strip().splitlines()
+#     if not lines:
+#         raise HTTPException(status_code=404, detail="test_runs_output.jsonl is empty")
+#     return json.loads(lines[-1])
 
 
 # ----- API endpoints -----
@@ -316,37 +317,37 @@ async def run_test(line_index: int, background_tasks: BackgroundTasks):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/recordings/{recording_name}")
-async def get_recording(recording_name: str):
-    """Endpoint to retrieve a recording file"""
-    filepath = os.path.join(RECORDINGS_DIR, recording_name)
-    if not os.path.isfile(filepath):
-        await log_debug(f"Recording not found: {recording_name}")
-        raise HTTPException(status_code=404, detail="Recording not found")
+# @app.get("/recordings/{recording_name}")
+# async def get_recording(recording_name: str):
+#     """Endpoint to retrieve a recording file"""
+#     filepath = os.path.join(RECORDINGS_DIR, recording_name)
+#     if not os.path.isfile(filepath):
+#         await log_debug(f"Recording not found: {recording_name}")
+#         raise HTTPException(status_code=404, detail="Recording not found")
+#
+#     await log_debug(f"Serving recording: {recording_name}")
+#     return FileResponse(filepath, media_type="audio/mpeg")
 
-    await log_debug(f"Serving recording: {recording_name}")
-    return FileResponse(filepath, media_type="audio/mpeg")
 
-
-@app.post("/run_case")
-async def run_case(data: BeaumontData, background_tasks: BackgroundTasks):
-    """
-    Endpoint to run a test scenario based on incoming Beaumont data.
-    """
-    try:
-        # Log the received data
-        await log_debug(f"Received case data: caller={data.caller}, property={data.property}, issue={data.issue}")
-
-        # Run in background task
-        background_tasks.add_task(run_scenario_with_data, data)
-        return {
-            "status": "Test case started",
-            "message": "Check WebSocket or status endpoint for updates",
-            "data": data.model_dump()
-        }
-    except Exception as e:
-        await log_debug(f"Error in /run_case: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+# @app.post("/run_case")
+# async def run_case(data: BeaumontData, background_tasks: BackgroundTasks):
+#     """
+#     Endpoint to run a test scenario based on incoming Beaumont data.
+#     """
+#     try:
+#         # Log the received data
+#         await log_debug(f"Received case data: caller={data.caller}, property={data.property}, issue={data.issue}")
+#
+#         # Run in background task
+#         background_tasks.add_task(run_scenario_with_data, data)
+#         return {
+#             "status": "Test case started",
+#             "message": "Check WebSocket or status endpoint for updates",
+#             "data": data.model_dump()
+#         }
+#     except Exception as e:
+#         await log_debug(f"Error in /run_case: {str(e)}")
+#         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/clear_logs")
