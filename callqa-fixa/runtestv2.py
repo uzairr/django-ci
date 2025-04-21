@@ -31,9 +31,26 @@ class WebSocketLogHandler(logging.Handler):
         self.setLevel(logging.DEBUG)
 
     def emit(self, record):
-        log_entry = self.format(record)
-        # Use create_task to avoid blocking when emitting logs
-        asyncio.create_task(self.broadcast_callback(log_entry))
+        try:
+            # Check if this is a pipecat log
+            if record.name.startswith('pipecat'):
+                # Extract module name and line number
+                module_name = record.name
+                line_number = record.lineno
+                message = record.getMessage()
+
+                # Format similar to the blue logs in screenshots
+                log_entry = f"{module_name}:{line_number} - {message}"
+
+                # Use create_task to avoid blocking
+                asyncio.create_task(self.broadcast_callback(log_entry, "DEBUG"))
+            else:
+                # Handle non-pipecat logs normally
+                log_entry = self.format(record)
+                asyncio.create_task(self.broadcast_callback(log_entry))
+        except Exception:
+            # Ensure any errors don't crash the handler
+            pass
 
 
 # Custom stdout/stderr capture for subprocess output
@@ -101,6 +118,7 @@ class TwilioTestRunner:
         ws_handler.setFormatter(formatter)
 
         # Add handler to logger
+        logger = logging.getLogger(__name__)
         logger.addHandler(ws_handler)
 
         # Add handler to root logger to capture ALL logs
@@ -108,19 +126,19 @@ class TwilioTestRunner:
         root_logger.setLevel(logging.DEBUG)  # Set root logger to DEBUG level
         root_logger.addHandler(ws_handler)
 
-        # Also explicitly add handlers for pipecat
-        pipecat_logger = logging.getLogger('pipecat')
-        pipecat_logger.setLevel(logging.DEBUG)
-        pipecat_logger.addHandler(ws_handler)
-
-        # Also add handlers for all loggers in the fixa package and pipecat
+        # Add handlers specifically for pipecat loggers
         for name in logging.root.manager.loggerDict:
-            if name.startswith('fixa') or name.startswith('pipecat'):
-                logging.getLogger(name).setLevel(logging.DEBUG)
-                logging.getLogger(name).addHandler(ws_handler)
+            if name.startswith('pipecat'):
+                logger = logging.getLogger(name)
+                logger.setLevel(logging.DEBUG)
+                # Remove any existing handlers to avoid duplicates
+                for hdlr in logger.handlers[:]:
+                    if isinstance(hdlr, WebSocketLogHandler):
+                        logger.removeHandler(hdlr)
+                logger.addHandler(ws_handler)
 
         # Broadcast an initialization message
-        asyncio.create_task(broadcast_callback("TestRunner initialized with WebSocket logging"))
+        asyncio.create_task(broadcast_callback("TestRunner initialized with WebSocket logging for pipecat"))
 
     async def log(self, message):
         """Helper method to log messages and broadcast them if callback exists"""

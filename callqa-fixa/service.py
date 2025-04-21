@@ -64,12 +64,69 @@ from runtestv2 import TwilioTestRunner
 log_lock = threading.Lock()
 
 
-# Broadcast function for WebSockets
-async def broadcast_to_listeners(message: str):
-    """Send message to all connected WebSocket clients"""
+# Create a specialized handler for pipecat logs
+class PipecatWebSocketHandler(logging.Handler):
+    def __init__(self):
+        super().__init__()
+        self.setLevel(logging.DEBUG)
+
+    def emit(self, record):
+        log_entry = self.format(record)
+        module_name = record.name
+        line_number = record.lineno
+        message = record.getMessage()
+
+        # Format similar to the blue logs in screenshots
+        formatted_message = f"{module_name}:{line_number} - {message}"
+
+        # Use create_task to avoid blocking
+        asyncio.create_task(broadcast_to_listeners(formatted_message, "DEBUG"))
+
+
+# Create a function to set up pipecat loggers
+def setup_pipecat_logging():
+    """Set up detailed logging for all pipecat modules"""
+    # Create a formatter for pipecat logs
+    formatter = logging.Formatter('%(name)s:%(lineno)d - %(message)s')
+
+    # Create the custom handler
+    handler = PipecatWebSocketHandler()
+    handler.setFormatter(formatter)
+
+    # Get all loggers and add handler to pipecat ones
+    for name in logging.root.manager.loggerDict:
+        if name.startswith('pipecat'):
+            logger = logging.getLogger(name)
+            logger.setLevel(logging.DEBUG)
+            # Remove any existing handlers to avoid duplicates
+            for hdlr in logger.handlers[:]:
+                if isinstance(hdlr, PipecatWebSocketHandler):
+                    logger.removeHandler(hdlr)
+            logger.addHandler(handler)
+            print(f"Added WebSocket handler to {name}")
+
+    # Also add to root logger to catch any new pipecat loggers
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG)
+    root_logger.addHandler(handler)
+
+async def broadcast_to_listeners(message: str, level: str = "INFO"):
+    """Send message to all connected WebSocket clients with proper formatting"""
     global logs
-    timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-    formatted_message = f"[{timestamp}] {message}"
+    timestamp = time.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+
+    # Format the message similar to the blue logs in the screenshots
+    if level == "DEBUG" and "pipecat." in message:
+        # Extract the pipecat module name and line number if present
+        parts = message.split(" - ", 1)
+        if len(parts) > 1 and "pipecat." in parts[0]:
+            module_info = parts[0]
+            message_content = parts[1]
+            formatted_message = f"{timestamp} | DEBUG    | {module_info} - {message_content}"
+        else:
+            formatted_message = f"{timestamp} | DEBUG    | {message}"
+    else:
+        formatted_message = f"[{timestamp}] {level}: {message}"
 
     # Thread-safe log addition
     with log_lock:
@@ -96,6 +153,7 @@ async def log_debug(message: str):
     print(f"DEBUG: {message}")
     await broadcast_to_listeners(f"DEBUG: {message}")
 
+
 async def run_runtest(line_index: int) -> None:
     """
     Runs runtestv2.py with the integrated WebSocket logging.
@@ -103,28 +161,12 @@ async def run_runtest(line_index: int) -> None:
     await broadcast_to_listeners(f"Starting test run for case index: {line_index}")
 
     try:
+        # Set up pipecat logging first
+        setup_pipecat_logging()
+        await broadcast_to_listeners("Configured pipecat loggers for WebSocket broadcasting")
+
         # Create TwilioTestRunner with our broadcast function
         runner = TwilioTestRunner(broadcast_callback=broadcast_to_listeners)
-
-        # Set the root logger to DEBUG level to ensure all logs are captured
-        logging.getLogger().setLevel(logging.DEBUG)
-
-        # Ensure pipecat logger is set to DEBUG and has our handler
-        pipecat_logger = logging.getLogger('pipecat')
-        pipecat_logger.setLevel(logging.DEBUG)
-
-        # Create a custom handler for pipecat logs
-        class PipecatHandler(logging.Handler):
-            def emit(self, record):
-                log_message = self.format(record)
-                asyncio.create_task(broadcast_to_listeners(f"PIPECAT: {log_message}"))
-
-        # Add the handler
-        pipecat_handler = PipecatHandler()
-        pipecat_handler.setLevel(logging.DEBUG)
-        pipecat_logger.addHandler(pipecat_handler)
-
-        await broadcast_to_listeners("Configured pipecat logger for DEBUG level")
 
         # Run the test directly
         await broadcast_to_listeners(f"Executing test for line index {line_index}")
@@ -237,7 +279,8 @@ async def websocket_endpoint(websocket: WebSocket):
 @app.on_event("startup")
 async def startup_event():
     """Initialize service on startup"""
-    await broadcast_to_listeners("Service started")
+    setup_pipecat_logging()
+    await broadcast_to_listeners("Service started with pipecat logging enabled")
 
 
 # ----- Main entry point -----
