@@ -151,31 +151,20 @@ class TwilioTestRunner:
         # Create and configure handler
         ws_handler = WebSocketLogHandler(broadcast_callback)
         ws_handler.setLevel(logging.DEBUG)
-        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        formatter = logging.Formatter('%(message)s')  # Simplest format
         ws_handler.setFormatter(formatter)
 
         # Add handler to logger
-        logger = logging.getLogger(__name__)
         logger.addHandler(ws_handler)
 
-        # Add handler to root logger to capture ALL logs
-        root_logger = logging.getLogger()
-        root_logger.setLevel(logging.DEBUG)  # Set root logger to DEBUG level
-        root_logger.addHandler(ws_handler)
-
-        # Add handlers specifically for pipecat loggers
+        # Add handler to root logger - but NOT for pipecat loggers
+        # This prevents duplicate logs since service.py will handle pipecat logs
         for name in logging.root.manager.loggerDict:
-            if name.startswith('pipecat'):
-                logger = logging.getLogger(name)
-                logger.setLevel(logging.DEBUG)
-                # Remove any existing handlers to avoid duplicates
-                for hdlr in logger.handlers[:]:
-                    if isinstance(hdlr, WebSocketLogHandler):
-                        logger.removeHandler(hdlr)
-                logger.addHandler(ws_handler)
+            if not name.startswith('pipecat'):
+                logging.getLogger(name).addHandler(ws_handler)
 
         # Broadcast an initialization message
-        asyncio.create_task(broadcast_callback("TestRunner initialized with WebSocket logging for pipecat"))
+        asyncio.create_task(broadcast_callback("TestRunner initialized with WebSocket logging"))
 
     async def log(self, message):
         """Helper method to log messages and broadcast them if callback exists"""

@@ -1,16 +1,18 @@
+# Add this to the beginning of service.py, before any imports happen
+
+# Monkey patch the logging system to intercept all pipecat logs
 import logging
+import asyncio
+import sys
+import time
 import subprocess
 import json
 import os
-import time
-import sys
 import threading
 import tempfile
 import shlex
 from typing import Any, List, Dict, Set, Optional
 import uvicorn
-import asyncio
-
 from pydantic import BaseModel
 import sys
 from dotenv import load_dotenv
@@ -65,22 +67,41 @@ log_lock = threading.Lock()
 
 
 # Create a specialized handler for pipecat logs
-class PipecatWebSocketHandler(logging.Handler):
-    def __init__(self):
-        super().__init__()
-        self.setLevel(logging.DEBUG)
+# class PipecatWebSocketHandler(logging.Handler):
+#     def __init__(self):
+#         super().__init__()
+#         self.setLevel(logging.DEBUG)
+#
+#     def emit(self, record):
+#         log_entry = self.format(record)
+#         module_name = record.name
+#         line_number = record.lineno
+#         message = record.getMessage()
+#
+#         # Format similar to the blue logs in screenshots
+#         formatted_message = f"{module_name}:{line_number} - {message}"
+#
+#         # Use create_task to avoid blocking
+#         asyncio.create_task(broadcast_to_listeners(formatted_message, "DEBUG"))
 
+
+class PipecatWebSocketHandler(logging.Handler):
     def emit(self, record):
-        log_entry = self.format(record)
+        # log_entry = self.format(record)
         module_name = record.name
         line_number = record.lineno
         message = record.getMessage()
-
-        # Format similar to the blue logs in screenshots
         formatted_message = f"{module_name}:{line_number} - {message}"
 
-        # Use create_task to avoid blocking
-        asyncio.create_task(broadcast_to_listeners(formatted_message, "DEBUG"))
+        try:
+            if record.name.startswith('pipecat'):
+                asyncio.run_coroutine_threadsafe(
+                    broadcast_to_listeners(formatted_message),  # Single argument
+                    asyncio.get_event_loop()
+                )
+        except Exception as e:
+            # Handle exceptions appropriately
+            print(f"Error in emit: {e}")
 
 
 def setup_pipecat_logging():
@@ -125,8 +146,12 @@ def setup_pipecat_logging():
     root_logger.setLevel(logging.DEBUG)
     root_logger.addHandler(pipecat_handler)
 
-async def broadcast_to_listeners(message: str):
-    """Send message to all connected WebSocket clients"""
+
+async def broadcast_to_listeners(message: str, _unused_sender: str = "system"):
+    """Allow optional second parameter without breaking existing calls"""
+    if not isinstance(message, str):
+        raise ValueError("Message must be a string")
+
     global logs
 
     # Thread-safe log addition
@@ -155,7 +180,50 @@ async def log_debug(message: str):
     await broadcast_to_listeners(f"DEBUG: {message}")
 
 
-# Modify the run_runtest function to properly set up pipecat logging
+# Update PipecatLogCapture in service.py
+class PipecatLogCapture:
+    @staticmethod
+    def setup():
+        handler = PipecatWebSocketHandler()
+        handler.setLevel(logging.DEBUG)  # Ensure handler accepts DEBUG
+
+        # Get root pipecat logger and all existing child loggers
+        base_logger = logging.getLogger("pipecat")
+        base_logger.setLevel(logging.DEBUG)
+
+        # Configure base logger
+        for h in base_logger.handlers[:]:
+            if isinstance(h, PipecatWebSocketHandler):
+                base_logger.removeHandler(h)
+        base_logger.addHandler(handler)
+        base_logger.propagate = True  # Allow propagation to child loggers
+
+        # Configure all existing child loggers
+        for name in logging.root.manager.loggerDict:
+            if name.startswith("pipecat."):
+                logger = logging.getLogger(name)
+                logger.setLevel(logging.DEBUG)
+                logger.propagate = True  # Ensure propagation to parent
+                for h in logger.handlers[:]:
+                    if isinstance(h, PipecatWebSocketHandler):
+                        logger.removeHandler(h)
+
+    @staticmethod
+    def verify_logging_levels():
+        """Verify base pipecat logger configuration"""
+        issues = []
+        base_logger = logging.getLogger("pipecat")
+
+        if base_logger.getEffectiveLevel() > logging.DEBUG:
+            issues.append(f"Base pipecat logger level is {logging.getLevelName(base_logger.getEffectiveLevel())}")
+
+        if not any(isinstance(h, PipecatWebSocketHandler) for h in base_logger.handlers):
+            issues.append("Base pipecat logger missing WebSocket handler")
+
+        if issues:
+            raise RuntimeError("Logging config issues:\n" + "\n".join(issues))
+
+
 async def run_runtest(line_index: int) -> None:
     """
     Runs runtestv2.py with the integrated WebSocket logging.
@@ -163,24 +231,19 @@ async def run_runtest(line_index: int) -> None:
     await broadcast_to_listeners(f"Starting test run for case index: {line_index}")
 
     try:
-        # Make sure logging is set up before creating the runner
-        setup_pipecat_logging()
+        # Set up pipecat logging first
+        PipecatLogCapture.setup()
+        await broadcast_to_listeners("Configured pipecat loggers for WebSocket broadcasting")
 
-        # Define direct interceptor for pipecat messages
-        async def direct_broadcast(message, level="INFO"):
-            # If this is a pipecat message, format it correctly
-            if isinstance(message, str) and "pipecat." in message:
-                timestamp = time.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-                formatted = f"{timestamp} | DEBUG    | {message}"
-                await broadcast_to_listeners(formatted)
-            else:
-                # Otherwise just broadcast it normally
-                await broadcast_to_listeners(f"[TEST] {message}")
+        # Create a function that will be passed to TwilioTestRunner
+        async def forward_to_websocket(message):
+            # For messages from the test runner
+            await broadcast_to_listeners(f"[TEST] {message}")
 
-        # Create TwilioTestRunner with direct broadcast function
-        runner = TwilioTestRunner(broadcast_callback=direct_broadcast)
+        # Create TwilioTestRunner with our forwarder
+        runner = TwilioTestRunner(broadcast_callback=forward_to_websocket)
 
-        # Run the test directly
+        # Run the test
         await broadcast_to_listeners(f"Executing test for line index {line_index}")
         results = await runner.run_test(line_index=line_index)
 
@@ -288,13 +351,54 @@ async def websocket_endpoint(websocket: WebSocket):
             listeners.remove(websocket)
 
 
-# Update startup event
+# @app.get("/test_logging")
+# async def test_logging():
+#     """Enhanced test endpoint"""
+#     # Test direct pipecat logger
+#     base_logger = logging.getLogger("pipecat")
+#     base_logger.debug("BASE DEBUG TEST - SHOULD APPEAR")
+#     base_logger.info("BASE INFO TEST - SHOULD APPEAR")
+#
+#     # Test child logger
+#     child_logger = logging.getLogger("pipecat.test_logger")
+#     child_logger.debug("CHILD DEBUG TEST - SHOULD APPEAR")
+#     child_logger.info("CHILD INFO TEST - SHOULD APPEAR")
+#
+#     # Test non-pipecat logger (shouldn't appear)
+#     other_logger = logging.getLogger("normal.logger")
+#     other_logger.debug("OTHER DEBUG TEST - SHOULD NOT APPEAR")
+#
+#     return {
+#         "status": "Test messages sent",
+#         "expected": "4 messages (2 debug, 2 info) should appear in WebSocket"
+#     }
+
+@app.get("/test_logging")
+async def test_logging():
+    # test_logger = logging.getLogger("pipecat.test_logger")
+    test_logger = logging.getLogger("pipecat.services.openai")
+
+    # Test direct call
+    await broadcast_to_listeners("Direct test message")  # 1 arg
+    await broadcast_to_listeners("Tagged test message", "tester")  # 2 args
+
+    # Test logger calls
+    test_logger.debug("DEBUG TEST MESSAGE(pipecat.services.openai)")
+    test_logger.info("INFO TEST MESSAGE(pipecat.services.openai)")
+
+    return {"status": "Test messages sent"}
+
+
 @app.on_event("startup")
 async def startup_event():
     """Initialize service on startup"""
-    # Set up pipecat logging on startup
-    setup_pipecat_logging()
-    await broadcast_to_listeners("Service started with pipecat logging enabled")
+    # Set up pipecat logging
+    PipecatLogCapture.setup()
+
+    # Verify logging configuration
+    PipecatLogCapture.verify_logging_levels()  # <-- Add this line
+
+    await broadcast_to_listeners("Service started...")
 
 
 # ----- Main entry point -----
